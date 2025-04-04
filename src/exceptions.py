@@ -1,4 +1,3 @@
-
 class SocketBaseException(Exception):
     detail = "Неожиданная ошибка"
 
@@ -6,4 +5,4 @@ class SocketBaseException(Exception):
         super().__init__(self.detail, *args, **kwargs)
         
 class NoConnectionsNow(SocketBaseException):
-    detail = "Нет доступных соединений"
+    detail = "Нет доступных соединений. Проверьте, что клиент подключен и повторите попытку."
