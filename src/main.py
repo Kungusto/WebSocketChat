@@ -5,49 +5,54 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 import logging
-import asyncio
 from src.services.socket_conn import SocketManager
-from src.exceptions import NoConnectionsNow
+import asyncio
+import threading
 
-async def handle_client(server_socket, connection):
-    server_socket.handling_connections.append(connection)
-    try:
-        while True:
-            message = await server_socket.get_message(connection)
-            if message:
-                print(f"Michael: {message}")
-                await server_socket.send_all(f"John: {message}".encode("utf-8"))
-    except ConnectionResetError:
-        print("Клиент отключился")
-    finally:
-        server_socket.active_connections.remove(connection)
-        server_socket.handling_connections.remove(connection)
-
-async def main():
-    logging.basicConfig(level=logging.DEBUG, 
-                        format='%(asctime)s - %(levelname)s - %(message)s')
-    logging.info("Запуск сервера")
+async def main() : 
     server_socket = SocketManager()
     server_socket.bind(('127.0.0.1', 8000))
     server_socket.listen()
-    try:
-        while True:
-            print("В ожидании соединения")
-            try:
-                await server_socket.accept()
-                print(f"Соединение установлено: {server_socket.connections[-1]}")
-            except NoConnectionsNow:
-                logging.info("Соединений не обнаружено")
-            tasks = [
-                asyncio.create_task(handle_client(server_socket, conn))
-                for conn in server_socket.active_connections
-                if conn not in server_socket.handling_connections
-            ]
-            if tasks:
-                await asyncio.gather(*tasks)
-    except KeyboardInterrupt:
-        print("Выход из программы")
-    finally:
-        server_socket.close()
+    server_socket.socket.setblocking(False)
+
+    try :
+        while True :
+            await server_socket.accept()        
+            for index, (conn, address, name) in enumerate(server_socket.active_connections) :
+                try :
+                    message = conn.recv(1024)
+                    try :
+                        message.decode()
+                    except UnicodeDecodeError :
+                        del server_socket.active_connections[index]
+                        for ___conn, ___address, ___name in server_socket.active_connections :
+                                ___conn.send(b"\r" + name
+                                            .strip().encode("utf-8") + b" left the chat\n" + __name.strip().encode("utf-8") + b"(you): ")
+                        conn.close()
+                        continue
+                    conn.send(name.encode("utf-8") + b"(you): ")
+                    print(f"Получено сообщение{name} : {message.decode().strip()}")
+                    for _conn, _, _name in server_socket.active_connections :
+                        if _conn != conn : 
+                            _conn.send(b"\r" + (" "*20).encode("utf-8") + b"\r" + f"{name}: ".encode("utf-8") + message + _name.strip().encode("utf-8") + b"(you): ")
+
+                except BlockingIOError : 
+                    ...
+            for conn, address in server_socket.authorization_connections :
+                try :
+                    name = conn.recv(1024)
+                    if name :
+                        server_socket.set_active_connection((conn, address, name.decode().strip()))
+                    conn.send(b"Your authorized as: " + name)
+                    server_socket.authorization_connections.remove((conn, address))
+                    for __conn, __address, __name in server_socket.active_connections :
+                        if __conn != conn :
+                            __conn.send(b"\r" + name.decode().strip().encode("utf-8") + b" joined the chat\n" + __name.strip().encode("utf-8") + b"(you): ")
+                    conn.send(("-"*100).encode("utf-8") + b"\n")
+                    conn.send(name.decode().strip().encode("utf-8") + b"(you): ")
+                except BlockingIOError : 
+                    ...
+    except KeyboardInterrupt :
+        print("Закрытие сокета")
 
 asyncio.run(main())
